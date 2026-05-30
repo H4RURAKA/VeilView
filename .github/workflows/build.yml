@@ -1,0 +1,46 @@
+name: 빌드 확인
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: .NET SDK 준비
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: NuGet 복원
+        shell: pwsh
+        run: dotnet restore .\src\VeilView\VeilView.csproj -r win-x64
+
+      - name: 단일 실행 파일 빌드
+        shell: pwsh
+        run: |
+          dotnet publish .\src\VeilView\VeilView.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            /p:PublishSingleFile=true `
+            /p:IncludeNativeLibrariesForSelfExtract=true `
+            /p:IncludeAllContentForSelfExtract=true `
+            /p:EnableCompressionInSingleFile=true `
+            /p:PublishTrimmed=false `
+            /p:DebugType=None `
+            /p:DebugSymbols=false `
+            -o .\dist
+
+      - name: 빌드 결과 업로드
+        uses: actions/upload-artifact@v4
+        with:
+          name: VeilView-win-x64
+          path: .\dist\VeilView.exe

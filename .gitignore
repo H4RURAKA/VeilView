@@ -1,0 +1,41 @@
+# Build output
+bin/
+obj/
+dist/
+dist-folder/
+publish/
+artifacts/
+
+# Local SDK installed by build.ps1
+.dotnet/
+.dotnet-install.ps1
+
+# User/local files
+*.user
+*.suo
+*.rsuser
+*.userosscache
+*.sln.docstates
+*.log
+*.tmp
+
+# IDE
+.vs/
+.vscode/*
+!.vscode/settings.example.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# NuGet
+*.nupkg
+packages/
+project.assets.json
+
+# Test/coverage
+TestResults/
+coverage/
+coverage.*

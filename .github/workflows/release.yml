@@ -1,0 +1,64 @@
+name: 릴리스
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: .NET SDK 준비
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: 단일 실행 파일 빌드
+        shell: pwsh
+        run: |
+          dotnet restore .\src\VeilView\VeilView.csproj -r win-x64
+          dotnet publish .\src\VeilView\VeilView.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            /p:PublishSingleFile=true `
+            /p:IncludeNativeLibrariesForSelfExtract=true `
+            /p:IncludeAllContentForSelfExtract=true `
+            /p:EnableCompressionInSingleFile=true `
+            /p:PublishTrimmed=false `
+            /p:DebugType=None `
+            /p:DebugSymbols=false `
+            -o .\dist
+
+      - name: 압축 파일 생성
+        shell: pwsh
+        run: |
+          Compress-Archive -Path .\dist\VeilView.exe -DestinationPath .\dist\VeilView-win-x64.zip -Force
+
+      - name: 한국어 릴리스 노트 준비
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $notes = Get-Content -Raw .\RELEASE_NOTES.md
+          $notes = $notes.Replace('{{TAG}}', $tag)
+          Set-Content -Path .\dist\release-notes-ko.md -Value $notes -Encoding UTF8
+
+      - name: GitHub Release 생성
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          gh release create $tag `
+            .\dist\VeilView.exe `
+            .\dist\VeilView-win-x64.zip `
+            --title "VeilView $tag 배포" `
+            --notes-file .\dist\release-notes-ko.md
