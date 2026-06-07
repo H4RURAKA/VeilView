@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
@@ -34,6 +35,7 @@ internal sealed class OverlayBrowserForm : Form
     private readonly Button _opacity30Button = new();
     private readonly Button _opacity70Button = new();
     private readonly Button _topMostButton = new();
+    private readonly Button _gestureButton = new();
     private readonly Label _statusLabel = new();
     private readonly ToolTip _toolTip = new();
 
@@ -160,6 +162,7 @@ internal sealed class OverlayBrowserForm : Form
         ConfigureButton(_opacity70Button, "70%", 52, DockStyle.Right, (_, _) => SetTransparencyPreset(70), "투명도 70%");
         ConfigureButton(_opacity30Button, "30%", 52, DockStyle.Right, (_, _) => SetTransparencyPreset(30), "투명도 30%");
         ConfigureButton(_opacity0Button, "0%", 52, DockStyle.Right, (_, _) => SetTransparencyPreset(0), "투명도 0%");
+        ConfigureButton(_gestureButton, "제스처", 62, DockStyle.Right, (_, _) => OpenGestureSettings(), "마우스 제스처 설정");
         ConfigureButton(_topMostButton, TopMost ? "항상 위" : "일반", 66, DockStyle.Right, (_, _) => ToggleTopMost(), "항상 위 토글");
 
         _urlBox.Dock = DockStyle.Fill;
@@ -198,6 +201,7 @@ internal sealed class OverlayBrowserForm : Form
         toolbar.Controls.Add(_opacity70Button);
         toolbar.Controls.Add(_opacity30Button);
         toolbar.Controls.Add(_opacity0Button);
+        toolbar.Controls.Add(_gestureButton);
         toolbar.Controls.Add(_topMostButton);
         toolbar.Controls.Add(_closeTabButton);
         toolbar.Controls.Add(_newTabButton);
@@ -352,6 +356,11 @@ internal sealed class OverlayBrowserForm : Form
         webView.Settings.IsZoomControlEnabled = true;
         webView.Settings.IsGeneralAutofillEnabled = false;
         webView.Settings.IsPasswordAutosaveEnabled = false;
+        webView.Settings.IsWebMessageEnabled = true;
+
+        webView.WebMessageReceived += (_, e) => HandleWebMessage(tab, e);
+        _ = webView.AddScriptToExecuteOnDocumentCreatedAsync(MouseGestureBridge.Script);
+        _ = webView.ExecuteScriptAsync(MouseGestureBridge.Script);
 
         webView.SourceChanged += (_, _) =>
         {
@@ -415,6 +424,120 @@ internal sealed class OverlayBrowserForm : Form
         {
             deferral?.Complete();
         }
+    }
+
+    private void HandleWebMessage(BrowserTab tab, CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(e.WebMessageAsJson);
+            var root = document.RootElement;
+
+            if (!root.TryGetProperty("type", out var typeElement)
+                || !string.Equals(typeElement.GetString(), "veilviewGesture", StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (!root.TryGetProperty("pattern", out var patternElement))
+            {
+                return;
+            }
+
+            var pattern = patternElement.GetString();
+            if (string.IsNullOrWhiteSpace(pattern))
+            {
+                return;
+            }
+
+            if (!ReferenceEquals(CurrentTab, tab))
+            {
+                _tabs.SelectedTab = tab.Page;
+            }
+
+            ExecuteGesture(pattern);
+        }
+        catch
+        {
+            // Ignore malformed web messages. Gesture messages are advisory only.
+        }
+    }
+
+    private void ExecuteGesture(string pattern)
+    {
+        if (!_settings.MouseGesturesEnabled)
+        {
+            ShowGestureStatus(pattern, "비활성화됨");
+            return;
+        }
+
+        var action = _settings.GetGestureAction(pattern);
+        switch (action)
+        {
+            case GestureActions.Back:
+                if (CurrentBrowser?.CoreWebView2?.CanGoBack == true)
+                {
+                    CurrentBrowser.CoreWebView2.GoBack();
+                }
+                break;
+
+            case GestureActions.Forward:
+                if (CurrentBrowser?.CoreWebView2?.CanGoForward == true)
+                {
+                    CurrentBrowser.CoreWebView2.GoForward();
+                }
+                break;
+
+            case GestureActions.Reload:
+                CurrentBrowser?.CoreWebView2?.Reload();
+                break;
+
+            case GestureActions.PreviousTab:
+                SelectPreviousTabLoop();
+                break;
+
+            case GestureActions.NextTab:
+                SelectNextTabLoop();
+                break;
+
+            case GestureActions.CloseTab:
+                CloseCurrentTab();
+                break;
+        }
+
+        ShowGestureStatus(pattern, GestureActions.DisplayName(action));
+        UpdateNavButtons();
+    }
+
+    private void SelectPreviousTabLoop()
+    {
+        if (_tabs.TabPages.Count <= 0) return;
+        _tabs.SelectedIndex = _tabs.SelectedIndex <= 0 ? _tabs.TabPages.Count - 1 : _tabs.SelectedIndex - 1;
+    }
+
+    private void SelectNextTabLoop()
+    {
+        if (_tabs.TabPages.Count <= 0) return;
+        _tabs.SelectedIndex = _tabs.SelectedIndex >= _tabs.TabPages.Count - 1 ? 0 : _tabs.SelectedIndex + 1;
+    }
+
+    private void ShowGestureStatus(string pattern, string actionName)
+    {
+        _statusLabel.Text = $"제스처 {GesturePatterns.DisplayName(pattern)}: {actionName}";
+    }
+
+    private void OpenGestureSettings()
+    {
+        using var dialog = new GestureSettingsDialog(_settings);
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        _settings.MouseGesturesEnabled = dialog.GesturesEnabled;
+        _settings.SetGestureActions(dialog.SelectedActions);
+        _settings.Save();
+        UpdateModeUi();
     }
 
     private void CloseCurrentTab()
@@ -558,7 +681,7 @@ internal sealed class OverlayBrowserForm : Form
         UpdateOpacityButtons();
 
         _statusLabel.Text = _keyboardPreserveEnabled
-            ? "키보드 보존: 마우스 조작은 VeilView에서 처리하고, 키보드는 기존 활성 창에 남깁니다. 새탭에서 열기는 VeilView 탭으로 열립니다."
+            ? "키보드 보존: 키보드는 기존 활성 창에 남깁니다. 우클릭 드래그 제스처와 내부 탭을 지원합니다."
             : "주소 입력: VeilView가 잠시 키보드를 받습니다. Enter 또는 [이동] 후 키보드 보존으로 돌아갑니다.";
     }
 

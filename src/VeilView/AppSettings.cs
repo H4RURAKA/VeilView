@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -21,6 +22,8 @@ internal sealed class AppSettings
     public int Height { get; set; } = 540;
     public int TransparencyPercent { get; set; } = 0;
     public bool TopMost { get; set; } = true;
+    public bool MouseGesturesEnabled { get; set; } = true;
+    public Dictionary<string, string> MouseGestures { get; set; } = GestureActions.CreateDefaultMap();
 
     public static string AppDataDirectory => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -54,6 +57,24 @@ internal sealed class AppSettings
         File.WriteAllText(SettingsPath, JsonSerializer.Serialize(this, JsonOptions));
     }
 
+    public Dictionary<string, string> GetNormalizedGestureActions()
+    {
+        NormalizeGestures();
+        return new Dictionary<string, string>(MouseGestures, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public string GetGestureAction(string pattern)
+    {
+        var actions = GetNormalizedGestureActions();
+        return actions.TryGetValue(pattern, out var action) ? GestureActions.NormalizeAction(action) : GestureActions.None;
+    }
+
+    public void SetGestureActions(Dictionary<string, string> actions)
+    {
+        MouseGestures = actions ?? GestureActions.CreateDefaultMap();
+        NormalizeGestures();
+    }
+
     private void Normalize()
     {
         LastUrl = string.IsNullOrWhiteSpace(LastUrl) ? "https://www.youtube.com/" : LastUrl.Trim();
@@ -66,5 +87,23 @@ internal sealed class AppSettings
         Width = Math.Max(520, Width);
         Height = Math.Max(320, Height);
         TransparencyPercent = AppOptions.NormalizeTransparency(TransparencyPercent);
+        NormalizeGestures();
+    }
+
+    private void NormalizeGestures()
+    {
+        var defaults = GestureActions.CreateDefaultMap();
+        var current = MouseGestures ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var normalized = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var pattern in GesturePatterns.All)
+        {
+            var value = current.TryGetValue(pattern.Key, out var action)
+                ? GestureActions.NormalizeAction(action)
+                : defaults[pattern.Key];
+            normalized[pattern.Key] = value;
+        }
+
+        MouseGestures = normalized;
     }
 }

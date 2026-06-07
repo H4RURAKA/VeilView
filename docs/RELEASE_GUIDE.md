@@ -19,8 +19,8 @@ README.md
 예시:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.1
+git push origin v0.3.1
 ```
 
 태그를 푸시하면 `.github/workflows/release.yml`이 실행되고, 다음 파일이 Release Asset으로 업로드됩니다.
@@ -33,7 +33,7 @@ VeilView-win-x64.zip
 ## 수동 릴리스 본문 예시
 
 ```markdown
-# VeilView v0.2.0
+# VeilView v0.3.1
 
 VeilView는 키보드 포커스를 기존 활성 창에 보존하면서 웹페이지를 마우스로 탐색할 수 있는 Windows용 플로팅 탭 브라우저입니다.
 
