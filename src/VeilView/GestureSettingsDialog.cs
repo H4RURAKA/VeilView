@@ -18,7 +18,7 @@ internal sealed class GestureSettingsDialog : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
-        ClientSize = new Size(430, 360);
+        ClientSize = new Size(450, 392);
         Padding = new Padding(12);
         ShowInTaskbar = false;
 
@@ -47,7 +47,7 @@ internal sealed class GestureSettingsDialog : Form
         };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 54));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170));
 
         AddHeader(grid, "제스처", 0, 0);
         AddHeader(grid, "인식 형태", 1, 0);

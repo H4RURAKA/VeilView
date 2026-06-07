@@ -19,6 +19,7 @@ internal static class NativeMethods
     public const uint SWP_FRAMECHANGED = 0x0020;
     public const uint SWP_NOOWNERZORDER = 0x0200;
 
+    public static readonly IntPtr HWND_TOP = new(0);
     public static readonly IntPtr HWND_TOPMOST = new(-1);
     public static readonly IntPtr HWND_NOTOPMOST = new(-2);
 

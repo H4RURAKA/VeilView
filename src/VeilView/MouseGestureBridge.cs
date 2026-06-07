@@ -47,6 +47,7 @@ internal static class MouseGestureBridge
     const second = sequence[1];
 
     if ((first === 'U' && second === 'D') || (first === 'D' && second === 'U')) return 'Vertical';
+    if ((first === 'L' && second === 'R') || (first === 'R' && second === 'L')) return 'Horizontal';
 
     // The corner shapes are normalized by shape, not by where the user starts drawing.
     if ((first === 'U' && second === 'R') || (first === 'L' && second === 'D')) return 'CornerTopLeft';

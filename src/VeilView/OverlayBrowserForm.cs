@@ -12,13 +12,6 @@ namespace VeilView;
 
 internal sealed class OverlayBrowserForm : Form
 {
-    private static readonly OpacityPreset[] OpacityPresets =
-    {
-        new(1.00, 0),
-        new(0.70, 30),
-        new(0.30, 70)
-    };
-
     private readonly AppOptions _options;
     private readonly AppSettings _settings;
 
@@ -31,9 +24,7 @@ internal sealed class OverlayBrowserForm : Form
     private readonly Button _reloadButton = new();
     private readonly Button _newTabButton = new();
     private readonly Button _closeTabButton = new();
-    private readonly Button _opacity0Button = new();
-    private readonly Button _opacity30Button = new();
-    private readonly Button _opacity70Button = new();
+    private readonly Button _opacityButton = new();
     private readonly Button _topMostButton = new();
     private readonly Button _gestureButton = new();
     private readonly Label _statusLabel = new();
@@ -55,7 +46,7 @@ internal sealed class OverlayBrowserForm : Form
         Size = new Size(_options.Width, _options.Height);
         MinimumSize = new Size(500, 320);
         TopMost = _options.TopMost;
-        Opacity = OpacityFromTransparency(_options.TransparencyPercent);
+        Opacity = OpacityFromPercent(_options.OpacityPercent);
         ShowInTaskbar = true;
         FormBorderStyle = FormBorderStyle.Sizable;
 
@@ -95,7 +86,6 @@ internal sealed class OverlayBrowserForm : Form
     private BrowserTab? CurrentTab => _tabs.SelectedTab?.Tag as BrowserTab;
 
     private WebView2? CurrentBrowser => CurrentTab?.Browser;
-
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
@@ -157,11 +147,9 @@ internal sealed class OverlayBrowserForm : Form
         ConfigureButton(_newTabButton, "+", 32, DockStyle.Left, async (_, _) => await CreateNewTabAsync("about:blank", select: true, navigate: true), "새 탭");
         ConfigureButton(_closeTabButton, "×", 32, DockStyle.Left, (_, _) => CloseCurrentTab(), "현재 탭 닫기");
 
-        ConfigureButton(_modeButton, "주소 입력", 92, DockStyle.Right, (_, _) => SetKeyboardPreserve(!_keyboardPreserveEnabled), "주소창이나 웹페이지에 직접 입력할 때 사용");
+        ConfigureButton(_modeButton, "직접 입력", 92, DockStyle.Right, (_, _) => SetKeyboardPreserve(!_keyboardPreserveEnabled), "주소창이나 웹페이지 입력칸에 직접 입력할 때 사용");
         ConfigureButton(_goButton, "이동", 48, DockStyle.Right, (_, _) => NavigateFromUrlBox(), "주소 이동");
-        ConfigureButton(_opacity70Button, "70%", 52, DockStyle.Right, (_, _) => SetTransparencyPreset(70), "투명도 70%");
-        ConfigureButton(_opacity30Button, "30%", 52, DockStyle.Right, (_, _) => SetTransparencyPreset(30), "투명도 30%");
-        ConfigureButton(_opacity0Button, "0%", 52, DockStyle.Right, (_, _) => SetTransparencyPreset(0), "투명도 0%");
+        ConfigureButton(_opacityButton, "불투명도", 96, DockStyle.Right, (_, _) => OpenOpacitySettings(), "불투명도 100%~30% 설정");
         ConfigureButton(_gestureButton, "제스처", 62, DockStyle.Right, (_, _) => OpenGestureSettings(), "마우스 제스처 설정");
         ConfigureButton(_topMostButton, TopMost ? "항상 위" : "일반", 66, DockStyle.Right, (_, _) => ToggleTopMost(), "항상 위 토글");
 
@@ -198,9 +186,7 @@ internal sealed class OverlayBrowserForm : Form
         toolbar.Controls.Add(_urlBox);
         toolbar.Controls.Add(_goButton);
         toolbar.Controls.Add(_modeButton);
-        toolbar.Controls.Add(_opacity70Button);
-        toolbar.Controls.Add(_opacity30Button);
-        toolbar.Controls.Add(_opacity0Button);
+        toolbar.Controls.Add(_opacityButton);
         toolbar.Controls.Add(_gestureButton);
         toolbar.Controls.Add(_topMostButton);
         toolbar.Controls.Add(_closeTabButton);
@@ -214,7 +200,7 @@ internal sealed class OverlayBrowserForm : Form
         Controls.Add(toolbar);
 
         UpdateModeUi();
-        UpdateOpacityButtons();
+        UpdateOpacityButton();
         UpdateNavButtons();
     }
 
@@ -492,6 +478,10 @@ internal sealed class OverlayBrowserForm : Form
                 CurrentBrowser?.CoreWebView2?.Reload();
                 break;
 
+            case GestureActions.ToggleInputMode:
+                SetKeyboardPreserve(!_keyboardPreserveEnabled);
+                break;
+
             case GestureActions.PreviousTab:
                 SelectPreviousTabLoop();
                 break;
@@ -529,7 +519,7 @@ internal sealed class OverlayBrowserForm : Form
     private void OpenGestureSettings()
     {
         using var dialog = new GestureSettingsDialog(_settings);
-        if (dialog.ShowDialog(this) != DialogResult.OK)
+        if (ShowOwnedSettingsDialog(dialog) != DialogResult.OK)
         {
             return;
         }
@@ -538,6 +528,76 @@ internal sealed class OverlayBrowserForm : Form
         _settings.SetGestureActions(dialog.SelectedActions);
         _settings.Save();
         UpdateModeUi();
+    }
+
+    private void OpenOpacitySettings()
+    {
+        var originalOpacityPercent = GetOpacityPercent(Opacity);
+        using var dialog = new OpacitySettingsDialog(originalOpacityPercent);
+        dialog.OpacityPercentChanged += opacityPercent => ApplyOpacityPercent(opacityPercent, persist: false);
+
+        if (ShowOwnedSettingsDialog(dialog) == DialogResult.OK)
+        {
+            ApplyOpacityPercent(dialog.SelectedOpacityPercent, persist: true);
+            _settings.Save();
+            return;
+        }
+
+        ApplyOpacityPercent(originalOpacityPercent, persist: false);
+    }
+
+    private DialogResult ShowOwnedSettingsDialog(Form dialog)
+    {
+        var restorePreserve = _keyboardPreserveEnabled;
+        if (restorePreserve)
+        {
+            CaptureCurrentForegroundWindow();
+        }
+
+        _keyboardPreserveEnabled = false;
+        _urlBox.ReadOnly = false;
+        ApplyWindowMode(noActivate: false);
+        UpdateModeUi();
+
+        dialog.StartPosition = FormStartPosition.CenterParent;
+        dialog.ShowInTaskbar = false;
+        dialog.TopMost = TopMost;
+        dialog.Owner = this;
+        dialog.Shown += (_, _) =>
+        {
+            dialog.TopMost = TopMost;
+            dialog.BringToFront();
+            dialog.Activate();
+
+            if (dialog.IsHandleCreated)
+            {
+                NativeMethods.SetWindowPos(
+                    dialog.Handle,
+                    TopMost ? NativeMethods.HWND_TOPMOST : NativeMethods.HWND_TOP,
+                    0,
+                    0,
+                    0,
+                    0,
+                    NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE);
+            }
+        };
+
+        try
+        {
+            return dialog.ShowDialog(this);
+        }
+        finally
+        {
+            _keyboardPreserveEnabled = restorePreserve;
+            _urlBox.ReadOnly = restorePreserve;
+            ApplyWindowMode(noActivate: restorePreserve);
+            UpdateModeUi();
+
+            if (restorePreserve)
+            {
+                RestoreLastForegroundWindow();
+            }
+        }
     }
 
     private void CloseCurrentTab()
@@ -676,13 +736,13 @@ internal sealed class OverlayBrowserForm : Form
 
     private void UpdateModeUi()
     {
-        _modeButton.Text = _keyboardPreserveEnabled ? "주소 입력" : "보존 복귀";
+        _modeButton.Text = _keyboardPreserveEnabled ? "직접 입력" : "작업창 복귀";
         _topMostButton.Text = TopMost ? "항상 위" : "일반";
-        UpdateOpacityButtons();
+        UpdateOpacityButton();
 
         _statusLabel.Text = _keyboardPreserveEnabled
-            ? "키보드 보존: 키보드는 기존 활성 창에 남깁니다. 우클릭 드래그 제스처와 내부 탭을 지원합니다."
-            : "주소 입력: VeilView가 잠시 키보드를 받습니다. Enter 또는 [이동] 후 키보드 보존으로 돌아갑니다.";
+            ? "작업창 유지: 키보드는 기존 활성 창에 남깁니다. 우클릭 드래그 제스처와 내부 탭을 지원합니다."
+            : "직접 입력: VeilView가 키보드를 받습니다. Enter, [이동], 또는 [작업창 복귀] 후 작업창 유지로 돌아갑니다.";
     }
 
     private void CaptureCurrentForegroundWindow()
@@ -756,25 +816,25 @@ internal sealed class OverlayBrowserForm : Form
         ApplyWindowMode(noActivate: _keyboardPreserveEnabled);
     }
 
-    private void SetTransparencyPreset(int transparencyPercent)
+    private void ApplyOpacityPercent(int opacityPercent, bool persist)
     {
-        var preset = OpacityPresets.FirstOrDefault(p => p.TransparencyPercent == transparencyPercent);
-        if (preset == default)
+        var normalized = AppOptions.NormalizeOpacity(opacityPercent);
+        Opacity = normalized / 100.0;
+
+        if (persist)
         {
-            preset = OpacityPresets[0];
+            _settings.OpacityPercent = normalized;
+            _settings.TransparencyPercent = null;
         }
 
-        Opacity = preset.Opacity;
-        _settings.TransparencyPercent = preset.TransparencyPercent;
-        UpdateOpacityButtons();
+        UpdateOpacityButton();
     }
 
-    private void UpdateOpacityButtons()
+    private void UpdateOpacityButton()
     {
-        var percent = GetTransparencyPercent(Opacity);
-        _opacity0Button.Text = percent == 0 ? "0% ✓" : "0%";
-        _opacity30Button.Text = percent == 30 ? "30% ✓" : "30%";
-        _opacity70Button.Text = percent == 70 ? "70% ✓" : "70%";
+        var opacityPercent = GetOpacityPercent(Opacity);
+        _opacityButton.Text = $"투명도 {opacityPercent}%";
+        _toolTip.SetToolTip(_opacityButton, $"불투명도 {opacityPercent}% / 투명도 {100 - opacityPercent}%");
     }
 
     private void SaveCurrentSettings()
@@ -783,7 +843,8 @@ internal sealed class OverlayBrowserForm : Form
         _settings.Y = Location.Y;
         _settings.Width = Math.Max(MinimumSize.Width, Width);
         _settings.Height = Math.Max(MinimumSize.Height, Height);
-        _settings.TransparencyPercent = GetTransparencyPercent(Opacity);
+        _settings.OpacityPercent = GetOpacityPercent(Opacity);
+        _settings.TransparencyPercent = null;
         _settings.TopMost = TopMost;
 
         if (!string.IsNullOrWhiteSpace(_urlBox.Text))
@@ -859,33 +920,11 @@ internal sealed class OverlayBrowserForm : Form
         return title.Length <= maxLength ? title : title[..Math.Max(1, maxLength - 1)] + "…";
     }
 
-    private static int GetOpacityPresetIndex(double opacity)
-    {
-        var bestIndex = 0;
-        var bestDistance = double.MaxValue;
+    private static double OpacityFromPercent(int opacityPercent)
+        => AppOptions.NormalizeOpacity(opacityPercent) / 100.0;
 
-        for (var i = 0; i < OpacityPresets.Length; i++)
-        {
-            var distance = Math.Abs(OpacityPresets[i].Opacity - opacity);
-            if (distance < bestDistance)
-            {
-                bestDistance = distance;
-                bestIndex = i;
-            }
-        }
-
-        return bestIndex;
-    }
-
-    private static double SnapOpacity(double opacity) => OpacityPresets[GetOpacityPresetIndex(opacity)].Opacity;
-
-    private static double OpacityFromTransparency(int transparencyPercent)
-    {
-        var preset = OpacityPresets.FirstOrDefault(p => p.TransparencyPercent == transparencyPercent);
-        return preset?.Opacity ?? OpacityPresets[0].Opacity;
-    }
-
-    private static int GetTransparencyPercent(double opacity) => OpacityPresets[GetOpacityPresetIndex(opacity)].TransparencyPercent;
+    private static int GetOpacityPercent(double opacity)
+        => AppOptions.NormalizeOpacity((int)Math.Round(Math.Clamp(opacity, 0.30, 1.0) * 100));
 
     private sealed class BrowserTab
     {
@@ -899,6 +938,4 @@ internal sealed class OverlayBrowserForm : Form
         public WebView2 Browser { get; }
         public string Url { get; set; } = "about:blank";
     }
-
-    private sealed record OpacityPreset(double Opacity, int TransparencyPercent);
 }

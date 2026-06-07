@@ -13,7 +13,8 @@ internal sealed class AppOptions
     public int Y { get; init; } = 80;
     public int Width { get; init; } = 960;
     public int Height { get; init; } = 540;
-    public int TransparencyPercent { get; init; } = 30;
+    public int OpacityPercent { get; init; } = 100;
+    public int TransparencyPercent { get; init; } = 0;
     public bool TopMost { get; init; } = true;
     public bool UrlWasSpecified { get; init; }
 
@@ -26,7 +27,7 @@ internal sealed class AppOptions
             Y = settings.Y,
             Width = settings.Width,
             Height = settings.Height,
-            TransparencyPercent = NormalizeTransparency(settings.TransparencyPercent),
+            OpacityPercent = NormalizeOpacity(settings.OpacityPercent),
             TopMost = settings.TopMost
         };
 
@@ -71,15 +72,21 @@ internal sealed class AppOptions
                     i++;
                     break;
                 case "--transparency" when TryInt(value, out var transparency):
-                    mutable.TransparencyPercent = NormalizeTransparency(transparency);
+                    mutable.OpacityPercent = NormalizeOpacity(100 - NormalizeTransparency(transparency));
                     i++;
                     break;
                 case "--transparent" when TryInt(value, out var transparent):
-                    mutable.TransparencyPercent = NormalizeTransparency(transparent);
+                    mutable.OpacityPercent = NormalizeOpacity(100 - NormalizeTransparency(transparent));
                     i++;
                     break;
                 case "--opacity" when TryDouble(value, out var opacity):
-                    mutable.TransparencyPercent = NormalizeTransparency((int)Math.Round((1.0 - Math.Clamp(opacity, 0.30, 1.0)) * 100));
+                    mutable.OpacityPercent = NormalizeOpacity(opacity <= 1.0
+                        ? (int)Math.Round(opacity * 100)
+                        : (int)Math.Round(opacity));
+                    i++;
+                    break;
+                case "--opacity-percent" when TryInt(value, out var opacityPercent):
+                    mutable.OpacityPercent = NormalizeOpacity(opacityPercent);
                     i++;
                     break;
                 case "--topmost" when TryBool(value, out var topMost):
@@ -89,6 +96,7 @@ internal sealed class AppOptions
             }
         }
 
+        var normalizedOpacity = NormalizeOpacity(mutable.OpacityPercent);
         return new AppOptions
         {
             Url = mutable.Url,
@@ -101,7 +109,8 @@ internal sealed class AppOptions
             Y = mutable.Y,
             Width = mutable.Width,
             Height = mutable.Height,
-            TransparencyPercent = NormalizeTransparency(mutable.TransparencyPercent),
+            OpacityPercent = normalizedOpacity,
+            TransparencyPercent = 100 - normalizedOpacity,
             TopMost = mutable.TopMost,
             UrlWasSpecified = mutable.UrlWasSpecified
         };
@@ -134,12 +143,15 @@ internal sealed class AppOptions
         return false;
     }
 
-    public static int NormalizeTransparency(int value)
-    {
-        if (value <= 15) return 0;
-        if (value <= 50) return 30;
-        return 70;
-    }
+    public static int NormalizeTransparency(int value) => Math.Clamp(value, 0, 70);
+
+    public static int NormalizeOpacity(int value) => Math.Clamp(value, 30, 100);
+
+    public static int OpacityFromTransparency(int transparencyPercent) => NormalizeOpacity(100 - NormalizeTransparency(transparencyPercent));
+
+    public static int NormalizeOpacityPercent(int value) => NormalizeOpacity(value);
+
+    public static int TransparencyFromOpacity(int opacityPercent) => 100 - NormalizeOpacity(opacityPercent);
 
     private sealed class MutableOptions
     {
@@ -149,7 +161,7 @@ internal sealed class AppOptions
         public int Y { get; set; } = 80;
         public int Width { get; set; } = 960;
         public int Height { get; set; } = 540;
-        public int TransparencyPercent { get; set; } = 30;
+        public int OpacityPercent { get; set; } = 100;
         public bool TopMost { get; set; } = true;
         public bool UrlWasSpecified { get; set; }
     }

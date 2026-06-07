@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace VeilView;
 
@@ -20,9 +21,15 @@ internal sealed class AppSettings
     public int Y { get; set; } = 80;
     public int Width { get; set; } = 960;
     public int Height { get; set; } = 540;
-    public int TransparencyPercent { get; set; } = 0;
+    public int OpacityPercent { get; set; } = 100;
+
+    // v0.3.1 and older stored transparency percentage. Keep this nullable property only for migration.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? TransparencyPercent { get; set; }
+
     public bool TopMost { get; set; } = true;
     public bool MouseGesturesEnabled { get; set; } = true;
+    public int GestureDefaultsVersion { get; set; } = 0;
     public Dictionary<string, string> MouseGestures { get; set; } = GestureActions.CreateDefaultMap();
 
     public static string AppDataDirectory => Path.Combine(
@@ -72,6 +79,7 @@ internal sealed class AppSettings
     public void SetGestureActions(Dictionary<string, string> actions)
     {
         MouseGestures = actions ?? GestureActions.CreateDefaultMap();
+        GestureDefaultsVersion = GestureActions.DefaultMapVersion;
         NormalizeGestures();
     }
 
@@ -86,7 +94,14 @@ internal sealed class AppSettings
         ActiveTabIndex = Math.Clamp(ActiveTabIndex, 0, Math.Max(0, LastTabs.Length - 1));
         Width = Math.Max(520, Width);
         Height = Math.Max(320, Height);
-        TransparencyPercent = AppOptions.NormalizeTransparency(TransparencyPercent);
+
+        if (TransparencyPercent.HasValue)
+        {
+            OpacityPercent = AppOptions.OpacityFromTransparency(TransparencyPercent.Value);
+            TransparencyPercent = null;
+        }
+
+        OpacityPercent = AppOptions.NormalizeOpacity(OpacityPercent);
         NormalizeGestures();
     }
 
@@ -94,8 +109,13 @@ internal sealed class AppSettings
     {
         var defaults = GestureActions.CreateDefaultMap();
         var current = MouseGestures ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var normalized = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+        if (GestureDefaultsVersion < GestureActions.DefaultMapVersion && GestureActions.LooksLikeLegacyDefaultMap(current))
+        {
+            current = defaults;
+        }
+
+        var normalized = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var pattern in GesturePatterns.All)
         {
             var value = current.TryGetValue(pattern.Key, out var action)
@@ -105,5 +125,6 @@ internal sealed class AppSettings
         }
 
         MouseGestures = normalized;
+        GestureDefaultsVersion = GestureActions.DefaultMapVersion;
     }
 }
